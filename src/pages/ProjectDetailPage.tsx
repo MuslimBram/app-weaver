@@ -12,12 +12,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Sparkles, Download, GitBranch, Play, RefreshCw,
-  FileCode, FolderTree, History, AlertTriangle, Loader2, Send
+  FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github
 } from 'lucide-react';
 import FileTreeViewer from '@/components/app-builder/FileTreeViewer';
 import CodeViewer from '@/components/app-builder/CodeViewer';
 import BuildLogViewer from '@/components/app-builder/BuildLogViewer';
-import RevisionList from '@/components/app-builder/RevisionList';
+import RevisionCompare from '@/components/app-builder/RevisionCompare';
+import GitHubPanel from '@/components/app-builder/GitHubPanel';
 
 interface ProjectData {
   id: string;
