@@ -261,11 +261,6 @@ export default function ProjectDetailPage() {
               <Download className="w-4 h-4 mr-2" />
               {exporting ? 'Exporting...' : 'Export ZIP'}
             </Button>
-            {project.github_connected && (
-              <Button variant="outline" disabled>
-                <GitBranch className="w-4 h-4 mr-2" /> Push to GitHub
-              </Button>
-            )}
           </div>
         </div>
 
