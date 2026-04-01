@@ -380,7 +380,18 @@ export default function ProjectDetailPage() {
           </TabsContent>
 
           <TabsContent value="revisions">
-            <RevisionList projectId={project.id} onRestore={loadProject} />
+            <RevisionCompare projectId={project.id} onRestore={loadProject} />
+          </TabsContent>
+
+          <TabsContent value="github">
+            <GitHubPanel
+              projectId={project.id}
+              projectSlug={project.slug}
+              githubConnected={project.github_connected}
+              githubRepoUrl={project.github_repo_url}
+              githubBranch={(project as any).github_branch}
+              onUpdate={loadProject}
+            />
           </TabsContent>
         </Tabs>
       </div>
