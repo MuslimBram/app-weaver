@@ -12,12 +12,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Sparkles, Download, GitBranch, Play, RefreshCw,
-  FileCode, FolderTree, History, AlertTriangle, Loader2, Send
+  FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github
 } from 'lucide-react';
 import FileTreeViewer from '@/components/app-builder/FileTreeViewer';
 import CodeViewer from '@/components/app-builder/CodeViewer';
 import BuildLogViewer from '@/components/app-builder/BuildLogViewer';
-import RevisionList from '@/components/app-builder/RevisionList';
+import RevisionCompare from '@/components/app-builder/RevisionCompare';
+import GitHubPanel from '@/components/app-builder/GitHubPanel';
 
 interface ProjectData {
   id: string;
@@ -260,11 +261,6 @@ export default function ProjectDetailPage() {
               <Download className="w-4 h-4 mr-2" />
               {exporting ? 'Exporting...' : 'Export ZIP'}
             </Button>
-            {project.github_connected && (
-              <Button variant="outline" disabled>
-                <GitBranch className="w-4 h-4 mr-2" /> Push to GitHub
-              </Button>
-            )}
           </div>
         </div>
 
@@ -301,6 +297,7 @@ export default function ProjectDetailPage() {
             <TabsTrigger value="spec"><FolderTree className="w-4 h-4 mr-2" />Spec</TabsTrigger>
             <TabsTrigger value="logs"><AlertTriangle className="w-4 h-4 mr-2" />Build Logs</TabsTrigger>
             <TabsTrigger value="revisions"><History className="w-4 h-4 mr-2" />Revisions</TabsTrigger>
+            <TabsTrigger value="github"><Github className="w-4 h-4 mr-2" />GitHub</TabsTrigger>
           </TabsList>
 
           <TabsContent value="files" className="space-y-4">
@@ -383,7 +380,18 @@ export default function ProjectDetailPage() {
           </TabsContent>
 
           <TabsContent value="revisions">
-            <RevisionList projectId={project.id} onRestore={loadProject} />
+            <RevisionCompare projectId={project.id} onRestore={loadProject} />
+          </TabsContent>
+
+          <TabsContent value="github">
+            <GitHubPanel
+              projectId={project.id}
+              projectSlug={project.slug}
+              githubConnected={project.github_connected}
+              githubRepoUrl={project.github_repo_url}
+              githubBranch={(project as any).github_branch}
+              onUpdate={loadProject}
+            />
           </TabsContent>
         </Tabs>
       </div>

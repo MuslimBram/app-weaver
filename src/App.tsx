@@ -8,6 +8,7 @@ import AuthPage from "./pages/AuthPage";
 import MyAppsPage from "./pages/MyAppsPage";
 import CreateAppPage from "./pages/CreateAppPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import UsagePage from "./pages/UsagePage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -39,6 +40,7 @@ const App = () => (
           <Route path="/app-builder" element={<ProtectedRoute><MyAppsPage /></ProtectedRoute>} />
           <Route path="/app-builder/create" element={<ProtectedRoute><CreateAppPage /></ProtectedRoute>} />
           <Route path="/app-builder/project/:projectId" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
+          <Route path="/app-builder/usage" element={<ProtectedRoute><UsagePage /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

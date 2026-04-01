@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { PROJECT_STATUSES } from '@/lib/app-builder-constants';
 import { Button } from '@/components/ui/button';
+import { BarChart3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -59,9 +60,14 @@ export default function MyAppsPage() {
             </h1>
             <p className="text-muted-foreground mt-1">Manage your AI-generated applications</p>
           </div>
-          <Button onClick={() => navigate('/app-builder/create')} className="gradient-primary">
-            <Plus className="w-4 h-4 mr-2" /> Create App
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/app-builder/usage')}>
+              <BarChart3 className="w-4 h-4 mr-2" /> Usage
+            </Button>
+            <Button onClick={() => navigate('/app-builder/create')} className="gradient-primary">
+              <Plus className="w-4 h-4 mr-2" /> Create App
+            </Button>
+          </div>
         </div>
 
         <div className="mb-6">
