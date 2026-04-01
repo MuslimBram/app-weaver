@@ -297,6 +297,7 @@ export default function ProjectDetailPage() {
             <TabsTrigger value="spec"><FolderTree className="w-4 h-4 mr-2" />Spec</TabsTrigger>
             <TabsTrigger value="logs"><AlertTriangle className="w-4 h-4 mr-2" />Build Logs</TabsTrigger>
             <TabsTrigger value="revisions"><History className="w-4 h-4 mr-2" />Revisions</TabsTrigger>
+            <TabsTrigger value="github"><Github className="w-4 h-4 mr-2" />GitHub</TabsTrigger>
           </TabsList>
 
           <TabsContent value="files" className="space-y-4">
