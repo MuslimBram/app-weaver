@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { PROJECT_STATUSES } from '@/lib/app-builder-constants';
+import { useQuota } from '@/components/app-builder/QuotaCard';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,54 +13,35 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Sparkles, Download, GitBranch, Play, RefreshCw,
-  FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github
+  FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github, Eye
 } from 'lucide-react';
 import FileTreeViewer from '@/components/app-builder/FileTreeViewer';
 import CodeViewer from '@/components/app-builder/CodeViewer';
 import BuildLogViewer from '@/components/app-builder/BuildLogViewer';
 import RevisionCompare from '@/components/app-builder/RevisionCompare';
 import GitHubPanel from '@/components/app-builder/GitHubPanel';
+import LivePreview from '@/components/app-builder/LivePreview';
 
 interface ProjectData {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  app_type: string;
-  template_key: string | null;
-  stack_key: string;
-  selected_model: string;
-  status: string;
-  github_connected: boolean;
-  github_repo_url: string | null;
-  options: any;
-  created_at: string;
-  updated_at: string;
+  id: string; name: string; slug: string; description: string | null;
+  app_type: string; template_key: string | null; stack_key: string;
+  selected_model: string; status: string; github_connected: boolean;
+  github_repo_url: string | null; options: any; created_at: string; updated_at: string;
 }
 
-interface FileData {
-  id: string;
-  path: string;
-  content: string;
-  file_type: string | null;
-}
+interface FileData { id: string; path: string; content: string; file_type: string | null; }
 
 interface GenerationData {
-  id: string;
-  prompt: string;
-  model_name: string;
-  status: string;
-  spec_json: any;
-  current_stage: string | null;
-  progress: number | null;
-  error_message: string | null;
-  created_at: string;
+  id: string; prompt: string; model_name: string; status: string;
+  spec_json: any; current_stage: string | null; progress: number | null;
+  error_message: string | null; created_at: string;
 }
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { canGenerate, canFollowUp, canExport } = useQuota();
 
   const [project, setProject] = useState<ProjectData | null>(null);
   const [files, setFiles] = useState<FileData[]>([]);
@@ -85,7 +67,6 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { loadProject(); }, [loadProject]);
 
-  // Auto-trigger generation if project is in draft status with no generations
   useEffect(() => {
     if (project?.status === 'draft' && generations.length === 0 && !generating) {
       handleGenerate();
@@ -95,24 +76,19 @@ export default function ProjectDetailPage() {
 
   const handleGenerate = async () => {
     if (!project || !user) return;
+    if (!canGenerate) { toast.error('Monthly generation limit reached. Upgrade your plan.'); return; }
     setGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-app', {
         body: {
-          projectId: project.id,
-          prompt: project.description,
-          model: project.selected_model,
-          template: project.template_key,
-          stack: project.stack_key,
-          appType: project.app_type,
-          options: project.options,
-          mode: 'initial',
+          projectId: project.id, prompt: project.description,
+          model: project.selected_model, template: project.template_key,
+          stack: project.stack_key, appType: project.app_type,
+          options: project.options, mode: 'initial',
         },
       });
       if (error) throw error;
       toast.success('Generation started!');
-
-      // Poll for completion
       pollGeneration(data.generationId);
     } catch (err: any) {
       toast.error(err.message || 'Generation failed');
@@ -123,44 +99,32 @@ export default function ProjectDetailPage() {
   const pollGeneration = async (generationId: string) => {
     const poll = setInterval(async () => {
       const { data } = await supabase
-        .from('app_generations')
-        .select('*')
-        .eq('id', generationId)
-        .single();
-
+        .from('app_generations').select('*').eq('id', generationId).single();
       if (data) {
         const gen = data as any;
         if (gen.status === 'completed' || gen.status === 'failed') {
           clearInterval(poll);
           setGenerating(false);
           await loadProject();
-          if (gen.status === 'completed') {
-            toast.success('App generated successfully!');
-          } else {
-            toast.error(gen.error_message || 'Generation failed');
-          }
+          if (gen.status === 'completed') toast.success('App generated successfully!');
+          else toast.error(gen.error_message || 'Generation failed');
         }
       }
     }, 2000);
-
-    // Timeout after 5 minutes
     setTimeout(() => { clearInterval(poll); setGenerating(false); }, 300000);
   };
 
   const handleFollowUp = async () => {
     if (!followUpPrompt.trim() || !project || !user) return;
+    if (!canFollowUp) { toast.error('Monthly follow-up limit reached. Upgrade your plan.'); return; }
     setGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-app', {
         body: {
-          projectId: project.id,
-          prompt: followUpPrompt,
-          model: project.selected_model,
-          template: project.template_key,
-          stack: project.stack_key,
-          appType: project.app_type,
-          options: project.options,
-          mode: 'follow-up',
+          projectId: project.id, prompt: followUpPrompt,
+          model: project.selected_model, template: project.template_key,
+          stack: project.stack_key, appType: project.app_type,
+          options: project.options, mode: 'follow-up',
           existingFiles: files.map(f => ({ path: f.path, content: f.content })),
         },
       });
@@ -168,13 +132,9 @@ export default function ProjectDetailPage() {
       setFollowUpPrompt('');
       toast.success('Follow-up generation started!');
       pollGeneration(data.generationId);
-
-      // Track usage
       await supabase.from('usage_tracking').insert({
-        user_id: user.id,
-        action_type: 'follow_up_edit',
-        project_id: project.id,
-        model_used: project.selected_model,
+        user_id: user.id, action_type: 'follow_up_edit',
+        project_id: project.id, model_used: project.selected_model,
       });
     } catch (err: any) {
       toast.error(err.message || 'Follow-up failed');
@@ -184,26 +144,20 @@ export default function ProjectDetailPage() {
 
   const handleExportZip = async () => {
     if (!project || !user) return;
+    if (!canExport) { toast.error('Monthly export limit reached. Upgrade your plan.'); return; }
     setExporting(true);
     try {
       const { data, error } = await supabase.functions.invoke('export-zip', {
         body: { projectId: project.id },
       });
       if (error) throw error;
-
-      // Download the base64 zip
       const link = document.createElement('a');
       link.href = `data:application/zip;base64,${data.zipBase64}`;
       link.download = `${project.slug}.zip`;
       link.click();
-
-      // Track usage
       await supabase.from('usage_tracking').insert({
-        user_id: user.id,
-        action_type: 'zip_export',
-        project_id: project.id,
+        user_id: user.id, action_type: 'zip_export', project_id: project.id,
       });
-
       toast.success('ZIP exported!');
     } catch (err: any) {
       toast.error(err.message || 'Export failed');
@@ -279,10 +233,7 @@ export default function ProjectDetailPage() {
                     {(!latestGen.current_stage || latestGen.current_stage === 'pending') && 'Starting generation...'}
                   </div>
                   <div className="w-full bg-secondary rounded-full h-2 mt-2">
-                    <div
-                      className="bg-primary h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${latestGen.progress || 5}%` }}
-                    />
+                    <div className="bg-primary h-2 rounded-full transition-all duration-500" style={{ width: `${latestGen.progress || 5}%` }} />
                   </div>
                 </div>
               </div>
@@ -294,6 +245,7 @@ export default function ProjectDetailPage() {
         <Tabs defaultValue="files" className="space-y-4">
           <TabsList>
             <TabsTrigger value="files"><FileCode className="w-4 h-4 mr-2" />Files</TabsTrigger>
+            <TabsTrigger value="preview"><Eye className="w-4 h-4 mr-2" />Preview</TabsTrigger>
             <TabsTrigger value="spec"><FolderTree className="w-4 h-4 mr-2" />Spec</TabsTrigger>
             <TabsTrigger value="logs"><AlertTriangle className="w-4 h-4 mr-2" />Build Logs</TabsTrigger>
             <TabsTrigger value="revisions"><History className="w-4 h-4 mr-2" />Revisions</TabsTrigger>
@@ -358,6 +310,10 @@ export default function ProjectDetailPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="preview">
+            <LivePreview files={files.map(f => ({ path: f.path, content: f.content }))} />
           </TabsContent>
 
           <TabsContent value="spec">
