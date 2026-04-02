@@ -8,7 +8,9 @@ import { BarChart3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Sparkles, FolderOpen } from 'lucide-react';
+import { Plus, Search, Sparkles, FolderOpen, Github } from 'lucide-react';
+import QuotaCard from '@/components/app-builder/QuotaCard';
+import GitHubImportDialog from '@/components/app-builder/GitHubImportDialog';
 
 interface Project {
   id: string;
@@ -28,6 +30,7 @@ export default function MyAppsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -61,6 +64,9 @@ export default function MyAppsPage() {
             <p className="text-muted-foreground mt-1">Manage your AI-generated applications</p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Github className="w-4 h-4 mr-2" /> Import
+            </Button>
             <Button variant="outline" onClick={() => navigate('/app-builder/usage')}>
               <BarChart3 className="w-4 h-4 mr-2" /> Usage
             </Button>
@@ -70,58 +76,75 @@ export default function MyAppsPage() {
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search apps..." className="pl-10" />
+        <div className="grid grid-cols-12 gap-6">
+          {/* Main content */}
+          <div className="col-span-12 lg:col-span-9">
+            <div className="mb-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search apps..." className="pl-10" />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-20 text-muted-foreground">Loading...</div>
+            ) : filtered.length === 0 ? (
+              <Card className="py-20">
+                <CardContent className="text-center">
+                  <FolderOpen className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold mb-2">No apps yet</h3>
+                  <p className="text-muted-foreground mb-6">Create your first AI-powered application</p>
+                  <div className="flex gap-3 justify-center">
+                    <Button onClick={() => navigate('/app-builder/create')} className="gradient-primary">
+                      <Plus className="w-4 h-4 mr-2" /> Create Your First App
+                    </Button>
+                    <Button variant="outline" onClick={() => setImportOpen(true)}>
+                      <Github className="w-4 h-4 mr-2" /> Import from GitHub
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filtered.map(project => {
+                  const status = PROJECT_STATUSES[project.status] || PROJECT_STATUSES.draft;
+                  return (
+                    <Card
+                      key={project.id}
+                      className="cursor-pointer hover:shadow-lg transition-all hover:border-primary/30 group"
+                      onClick={() => navigate(`/app-builder/project/${project.id}`)}
+                    >
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between mb-3">
+                          <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{project.name}</h3>
+                          <Badge className={status.color}>{status.label}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+                          {project.description || 'No description'}
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="bg-secondary px-2 py-1 rounded">{project.stack_key}</span>
+                          <span className="bg-secondary px-2 py-1 rounded">{project.selected_model}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-3">
+                          Updated {new Date(project.updated_at).toLocaleDateString()}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar with quota */}
+          <div className="col-span-12 lg:col-span-3">
+            <QuotaCard />
           </div>
         </div>
-
-        {loading ? (
-          <div className="text-center py-20 text-muted-foreground">Loading...</div>
-        ) : filtered.length === 0 ? (
-          <Card className="py-20">
-            <CardContent className="text-center">
-              <FolderOpen className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No apps yet</h3>
-              <p className="text-muted-foreground mb-6">Create your first AI-powered application</p>
-              <Button onClick={() => navigate('/app-builder/create')} className="gradient-primary">
-                <Plus className="w-4 h-4 mr-2" /> Create Your First App
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map(project => {
-              const status = PROJECT_STATUSES[project.status] || PROJECT_STATUSES.draft;
-              return (
-                <Card
-                  key={project.id}
-                  className="cursor-pointer hover:shadow-lg transition-all hover:border-primary/30 group"
-                  onClick={() => navigate(`/app-builder/project/${project.id}`)}
-                >
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between mb-3">
-                      <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{project.name}</h3>
-                      <Badge className={status.color}>{status.label}</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                      {project.description || 'No description'}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="bg-secondary px-2 py-1 rounded">{project.stack_key}</span>
-                      <span className="bg-secondary px-2 py-1 rounded">{project.selected_model}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-3">
-                      Updated {new Date(project.updated_at).toLocaleDateString()}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
       </div>
+
+      <GitHubImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
