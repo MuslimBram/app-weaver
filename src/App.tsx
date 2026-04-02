@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import AppNavbar from "@/components/AppNavbar";
 import AuthPage from "./pages/AuthPage";
 import MyAppsPage from "./pages/MyAppsPage";
 import CreateAppPage from "./pages/CreateAppPage";
@@ -18,7 +19,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!user) return <Navigate to="/auth" replace />;
-  return <>{children}</>;
+  return <><AppNavbar />{children}</>;
 }
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
