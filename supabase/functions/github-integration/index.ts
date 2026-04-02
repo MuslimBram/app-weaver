@@ -14,7 +14,6 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const url = new URL(req.url);
     const body = await req.json();
     const { action } = body;
 
@@ -31,17 +30,26 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
+    // Helper to get GitHub token
+    async function getGhToken(): Promise<string | null> {
+      if (!userId) return null;
+      const { data } = await supabase
+        .from("github_connections")
+        .select("encrypted_token_reference")
+        .eq("user_id", userId)
+        .single();
+      return data?.encrypted_token_reference || null;
+    }
+
     switch (action) {
       case "connect": {
-        // Store GitHub PAT (Personal Access Token) securely
-        const { token, accountName } = body;
+        const { token } = body;
         if (!token || !userId) {
           return new Response(JSON.stringify({ error: "Token and auth required" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        // Validate token with GitHub API
         const ghResp = await fetch("https://api.github.com/user", {
           headers: { Authorization: `Bearer ${token}`, "User-Agent": "PulseAI-AppBuilder" },
         });
@@ -52,7 +60,6 @@ serve(async (req) => {
         }
         const ghUser = await ghResp.json();
 
-        // Check existing connection
         const { data: existing } = await supabase
           .from("github_connections")
           .select("id")
@@ -62,7 +69,7 @@ serve(async (req) => {
         if (existing) {
           await supabase.from("github_connections").update({
             account_name: ghUser.login,
-            encrypted_token_reference: token, // In production, encrypt this
+            encrypted_token_reference: token,
           }).eq("id", existing.id);
         } else {
           await supabase.from("github_connections").insert({
@@ -128,21 +135,13 @@ serve(async (req) => {
           });
         }
 
-        const { data: conn } = await supabase
-          .from("github_connections")
-          .select("encrypted_token_reference")
-          .eq("user_id", userId)
-          .single();
-
-        if (!conn?.encrypted_token_reference) {
+        const ghToken = await getGhToken();
+        if (!ghToken) {
           return new Response(JSON.stringify({ error: "GitHub not connected" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const ghToken = conn.encrypted_token_reference;
-
-        // Create repo
         const createResp = await fetch("https://api.github.com/user/repos", {
           method: "POST",
           headers: {
@@ -166,8 +165,6 @@ serve(async (req) => {
         }
 
         const repoData = await createResp.json();
-
-        // Update project with GitHub info
         await supabase.from("app_projects").update({
           github_connected: true,
           github_repo_url: repoData.html_url,
@@ -198,25 +195,15 @@ serve(async (req) => {
           });
         }
 
-        // Get connection
-        const { data: ghConn } = await supabase
-          .from("github_connections")
-          .select("encrypted_token_reference")
-          .eq("user_id", userId)
-          .single();
-
-        if (!ghConn?.encrypted_token_reference) {
+        const ghToken = await getGhToken();
+        if (!ghToken) {
           return new Response(JSON.stringify({ error: "GitHub not connected" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        // Get project
         const { data: project } = await supabase
-          .from("app_projects")
-          .select("*")
-          .eq("id", pushProjectId)
-          .single();
+          .from("app_projects").select("*").eq("id", pushProjectId).single();
 
         if (!project?.github_repo_url) {
           return new Response(JSON.stringify({ error: "No GitHub repo linked" }), {
@@ -224,11 +211,8 @@ serve(async (req) => {
           });
         }
 
-        // Get files
         const { data: files } = await supabase
-          .from("app_files")
-          .select("path, content")
-          .eq("project_id", pushProjectId);
+          .from("app_files").select("path, content").eq("project_id", pushProjectId);
 
         if (!files || files.length === 0) {
           return new Response(JSON.stringify({ error: "No files to push" }), {
@@ -236,10 +220,7 @@ serve(async (req) => {
           });
         }
 
-        const ghToken = ghConn.encrypted_token_reference;
-        const repoUrl = project.github_repo_url;
-        // Extract owner/repo from URL
-        const repoMatch = repoUrl.match(/github\.com\/([^/]+\/[^/]+)/);
+        const repoMatch = project.github_repo_url.match(/github\.com\/([^/]+\/[^/]+)/);
         if (!repoMatch) {
           return new Response(JSON.stringify({ error: "Invalid repo URL" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -248,7 +229,6 @@ serve(async (req) => {
         const repoFullName = repoMatch[1].replace(/\.git$/, "");
         const targetBranch = pushBranch || project.github_branch || "main";
 
-        // Get current branch SHA
         const refResp = await fetch(
           `https://api.github.com/repos/${repoFullName}/git/refs/heads/${targetBranch}`,
           { headers: { Authorization: `Bearer ${ghToken}`, "User-Agent": "PulseAI-AppBuilder" } }
@@ -256,10 +236,8 @@ serve(async (req) => {
 
         let baseSha: string;
         if (refResp.ok) {
-          const refData = await refResp.json();
-          baseSha = refData.object.sha;
+          baseSha = (await refResp.json()).object.sha;
         } else {
-          // Branch doesn't exist, get default branch
           const defaultRefResp = await fetch(
             `https://api.github.com/repos/${repoFullName}/git/refs/heads/main`,
             { headers: { Authorization: `Bearer ${ghToken}`, "User-Agent": "PulseAI-AppBuilder" } }
@@ -269,78 +247,46 @@ serve(async (req) => {
               status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          const defaultRefData = await defaultRefResp.json();
-          baseSha = defaultRefData.object.sha;
-
-          // Create new branch
+          baseSha = (await defaultRefResp.json()).object.sha;
           await fetch(`https://api.github.com/repos/${repoFullName}/git/refs`, {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${ghToken}`,
-              "Content-Type": "application/json",
-              "User-Agent": "PulseAI-AppBuilder",
-            },
+            headers: { Authorization: `Bearer ${ghToken}`, "Content-Type": "application/json", "User-Agent": "PulseAI-AppBuilder" },
             body: JSON.stringify({ ref: `refs/heads/${targetBranch}`, sha: baseSha }),
           });
         }
 
-        // Create blobs for each file
         const tree: Array<{ path: string; mode: string; type: string; sha: string }> = [];
         for (const file of files) {
-          const blobResp = await fetch(
-            `https://api.github.com/repos/${repoFullName}/git/blobs`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${ghToken}`,
-                "Content-Type": "application/json",
-                "User-Agent": "PulseAI-AppBuilder",
-              },
-              body: JSON.stringify({ content: file.content, encoding: "utf-8" }),
-            }
-          );
+          const blobResp = await fetch(`https://api.github.com/repos/${repoFullName}/git/blobs`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${ghToken}`, "Content-Type": "application/json", "User-Agent": "PulseAI-AppBuilder" },
+            body: JSON.stringify({ content: file.content, encoding: "utf-8" }),
+          });
           if (!blobResp.ok) continue;
           const blobData = await blobResp.json();
           tree.push({ path: file.path, mode: "100644", type: "blob", sha: blobData.sha });
         }
 
-        // Create tree
-        const treeResp = await fetch(
-          `https://api.github.com/repos/${repoFullName}/git/trees`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${ghToken}`,
-              "Content-Type": "application/json",
-              "User-Agent": "PulseAI-AppBuilder",
-            },
-            body: JSON.stringify({ base_tree: baseSha, tree }),
-          }
-        );
+        const treeResp = await fetch(`https://api.github.com/repos/${repoFullName}/git/trees`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${ghToken}`, "Content-Type": "application/json", "User-Agent": "PulseAI-AppBuilder" },
+          body: JSON.stringify({ base_tree: baseSha, tree }),
+        });
         if (!treeResp.ok) {
           return new Response(JSON.stringify({ error: "Failed to create tree" }), {
             status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const treeData = await treeResp.json();
 
-        // Create commit
-        const commitResp = await fetch(
-          `https://api.github.com/repos/${repoFullName}/git/commits`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${ghToken}`,
-              "Content-Type": "application/json",
-              "User-Agent": "PulseAI-AppBuilder",
-            },
-            body: JSON.stringify({
-              message: commitMessage || `Update from Pulse AI App Builder`,
-              tree: treeData.sha,
-              parents: [baseSha],
-            }),
-          }
-        );
+        const commitResp = await fetch(`https://api.github.com/repos/${repoFullName}/git/commits`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${ghToken}`, "Content-Type": "application/json", "User-Agent": "PulseAI-AppBuilder" },
+          body: JSON.stringify({
+            message: commitMessage || "Update from Pulse AI App Builder",
+            tree: (await treeResp.json()).sha,
+            parents: [baseSha],
+          }),
+        });
         if (!commitResp.ok) {
           return new Response(JSON.stringify({ error: "Failed to create commit" }), {
             status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -348,28 +294,18 @@ serve(async (req) => {
         }
         const commitData = await commitResp.json();
 
-        // Update ref
-        await fetch(
-          `https://api.github.com/repos/${repoFullName}/git/refs/heads/${targetBranch}`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${ghToken}`,
-              "Content-Type": "application/json",
-              "User-Agent": "PulseAI-AppBuilder",
-            },
-            body: JSON.stringify({ sha: commitData.sha }),
-          }
-        );
+        await fetch(`https://api.github.com/repos/${repoFullName}/git/refs/heads/${targetBranch}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${ghToken}`, "Content-Type": "application/json", "User-Agent": "PulseAI-AppBuilder" },
+          body: JSON.stringify({ sha: commitData.sha }),
+        });
 
-        // Update project
         await supabase.from("app_projects").update({
           github_last_commit_sha: commitData.sha,
           github_branch: targetBranch,
           status: "github_ready",
         }).eq("id", pushProjectId);
 
-        // Log
         await supabase.from("build_logs").insert({
           project_id: pushProjectId,
           log_type: "github",
@@ -377,7 +313,6 @@ serve(async (req) => {
           level: "success",
         });
 
-        // Track usage
         await supabase.from("usage_tracking").insert({
           user_id: userId,
           action_type: "github_push",
@@ -402,20 +337,15 @@ serve(async (req) => {
           });
         }
 
-        const { data: ghConnection } = await supabase
-          .from("github_connections")
-          .select("encrypted_token_reference")
-          .eq("user_id", userId)
-          .single();
-
-        if (!ghConnection?.encrypted_token_reference) {
+        const ghToken = await getGhToken();
+        if (!ghToken) {
           return new Response(JSON.stringify({ error: "GitHub not connected" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
         const reposResp = await fetch("https://api.github.com/user/repos?sort=updated&per_page=30", {
-          headers: { Authorization: `Bearer ${ghConnection.encrypted_token_reference}`, "User-Agent": "PulseAI-AppBuilder" },
+          headers: { Authorization: `Bearer ${ghToken}`, "User-Agent": "PulseAI-AppBuilder" },
         });
 
         if (!reposResp.ok) {
@@ -433,6 +363,176 @@ serve(async (req) => {
             private: r.private,
             defaultBranch: r.default_branch,
           })),
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      case "import-repo": {
+        // Import files from a GitHub repo into a new or existing project
+        if (!userId) {
+          return new Response(JSON.stringify({ error: "Auth required" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const { repoFullName, branch, projectId: importProjectId } = body;
+        if (!repoFullName) {
+          return new Response(JSON.stringify({ error: "repoFullName required" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const ghToken = await getGhToken();
+        if (!ghToken) {
+          return new Response(JSON.stringify({ error: "GitHub not connected" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const targetBranch = branch || "main";
+
+        // Get file tree recursively
+        const treeResp = await fetch(
+          `https://api.github.com/repos/${repoFullName}/git/trees/${targetBranch}?recursive=1`,
+          { headers: { Authorization: `Bearer ${ghToken}`, "User-Agent": "PulseAI-AppBuilder" } }
+        );
+
+        if (!treeResp.ok) {
+          return new Response(JSON.stringify({ error: "Failed to fetch repo tree" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const treeData = await treeResp.json();
+        const blobs = (treeData.tree || []).filter(
+          (item: any) => item.type === "blob" && item.size < 500000 // Skip files >500KB
+        );
+
+        // Determine which files to fetch (text files only)
+        const textExtensions = new Set([
+          'ts', 'tsx', 'js', 'jsx', 'json', 'css', 'scss', 'html', 'md',
+          'yaml', 'yml', 'toml', 'env', 'txt', 'svg', 'xml', 'sh', 'bash',
+          'py', 'rb', 'go', 'rs', 'java', 'vue', 'svelte', 'graphql', 'sql',
+          'dockerfile', 'gitignore', 'prettierrc', 'eslintrc', 'editorconfig',
+        ]);
+
+        const filesToFetch = blobs.filter((b: any) => {
+          const ext = b.path.split('.').pop()?.toLowerCase() || '';
+          const name = b.path.split('/').pop()?.toLowerCase() || '';
+          return textExtensions.has(ext) || [
+            'readme', 'license', 'makefile', 'dockerfile', '.gitignore',
+            '.env.example', '.prettierrc', '.eslintrc',
+          ].includes(name);
+        }).slice(0, 200); // Max 200 files
+
+        // Fetch file contents in batches of 10
+        const importedFiles: Array<{ path: string; content: string; type: string }> = [];
+        for (let i = 0; i < filesToFetch.length; i += 10) {
+          const batch = filesToFetch.slice(i, i + 10);
+          const results = await Promise.all(
+            batch.map(async (blob: any) => {
+              try {
+                const resp = await fetch(
+                  `https://api.github.com/repos/${repoFullName}/git/blobs/${blob.sha}`,
+                  { headers: { Authorization: `Bearer ${ghToken}`, "User-Agent": "PulseAI-AppBuilder", Accept: "application/vnd.github.v3+json" } }
+                );
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                const content = data.encoding === "base64"
+                  ? atob(data.content.replace(/\n/g, ''))
+                  : data.content;
+                return { path: blob.path, content, type: blob.path.split('.').pop() || 'txt' };
+              } catch {
+                return null;
+              }
+            })
+          );
+          importedFiles.push(...results.filter(Boolean) as any);
+        }
+
+        let targetProjectId = importProjectId;
+
+        // If no projectId, create a new project
+        if (!targetProjectId) {
+          const repoName = repoFullName.split('/')[1] || 'imported-project';
+          const slug = repoName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+          const { data: newProject, error: projErr } = await supabase
+            .from("app_projects")
+            .insert({
+              user_id: userId,
+              name: repoName,
+              slug: `${slug}-${Date.now().toString(36)}`,
+              description: `Imported from GitHub: ${repoFullName}`,
+              stack_key: 'react-vite',
+              selected_model: 'auto',
+              status: 'preview_ready',
+              github_connected: true,
+              github_repo_url: `https://github.com/${repoFullName}`,
+              github_branch: targetBranch,
+            })
+            .select()
+            .single();
+
+          if (projErr) throw projErr;
+          targetProjectId = newProject.id;
+        } else {
+          // Clear existing files for re-import
+          await supabase.from("app_files").delete().eq("project_id", targetProjectId);
+        }
+
+        // Create revision
+        const { data: existingRevisions } = await supabase
+          .from('app_revisions')
+          .select('revision_number')
+          .eq('project_id', targetProjectId)
+          .order('revision_number', { ascending: false })
+          .limit(1);
+
+        const nextRevNum = (existingRevisions?.[0]?.revision_number || 0) + 1;
+
+        const { data: revision } = await supabase
+          .from('app_revisions')
+          .insert({
+            project_id: targetProjectId,
+            revision_number: nextRevNum,
+            change_summary: `Imported from GitHub: ${repoFullName}@${targetBranch}`,
+            created_by: userId,
+          })
+          .select()
+          .single();
+
+        // Insert files
+        for (const file of importedFiles) {
+          await supabase.from("app_files").insert({
+            project_id: targetProjectId,
+            revision_id: revision?.id,
+            path: file.path,
+            content: file.content,
+            file_type: file.type,
+          });
+        }
+
+        // Track usage
+        await supabase.from("usage_tracking").insert({
+          user_id: userId,
+          action_type: "github_import",
+          project_id: targetProjectId,
+          metadata: { repo: repoFullName, branch: targetBranch, filesCount: importedFiles.length },
+        });
+
+        await supabase.from("build_logs").insert({
+          project_id: targetProjectId,
+          log_type: "github",
+          message: `Imported ${importedFiles.length} files from ${repoFullName}@${targetBranch}`,
+          level: "success",
+        });
+
+        return new Response(JSON.stringify({
+          success: true,
+          projectId: targetProjectId,
+          filesCount: importedFiles.length,
+          skipped: blobs.length - importedFiles.length,
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
