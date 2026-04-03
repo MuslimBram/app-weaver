@@ -12,8 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  ArrowLeft, Sparkles, Download, GitBranch, Play, RefreshCw,
-  FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github, Eye
+  ArrowLeft, Download, Play, RefreshCw,
+  FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github, Eye, Settings
 } from 'lucide-react';
 import FileTreeViewer from '@/components/app-builder/FileTreeViewer';
 import CodeViewer from '@/components/app-builder/CodeViewer';
@@ -21,6 +21,8 @@ import BuildLogViewer from '@/components/app-builder/BuildLogViewer';
 import RevisionCompare from '@/components/app-builder/RevisionCompare';
 import GitHubPanel from '@/components/app-builder/GitHubPanel';
 import LivePreview from '@/components/app-builder/LivePreview';
+import ProjectSettings from '@/components/app-builder/ProjectSettings';
+import { DeleteProjectDialog, CloneProjectButton } from '@/components/app-builder/ProjectActions';
 
 interface ProjectData {
   id: string; name: string; slug: string; description: string | null;
@@ -28,9 +30,7 @@ interface ProjectData {
   selected_model: string; status: string; github_connected: boolean;
   github_repo_url: string | null; options: any; created_at: string; updated_at: string;
 }
-
 interface FileData { id: string; path: string; content: string; file_type: string | null; }
-
 interface GenerationData {
   id: string; prompt: string; model_name: string; status: string;
   spec_json: any; current_stage: string | null; progress: number | null;
@@ -76,7 +76,7 @@ export default function ProjectDetailPage() {
 
   const handleGenerate = async () => {
     if (!project || !user) return;
-    if (!canGenerate) { toast.error('Monthly generation limit reached. Upgrade your plan.'); return; }
+    if (!canGenerate) { toast.error('Monthly generation limit reached.'); return; }
     setGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-app', {
@@ -98,8 +98,7 @@ export default function ProjectDetailPage() {
 
   const pollGeneration = async (generationId: string) => {
     const poll = setInterval(async () => {
-      const { data } = await supabase
-        .from('app_generations').select('*').eq('id', generationId).single();
+      const { data } = await supabase.from('app_generations').select('*').eq('id', generationId).single();
       if (data) {
         const gen = data as any;
         if (gen.status === 'completed' || gen.status === 'failed') {
@@ -116,7 +115,7 @@ export default function ProjectDetailPage() {
 
   const handleFollowUp = async () => {
     if (!followUpPrompt.trim() || !project || !user) return;
-    if (!canFollowUp) { toast.error('Monthly follow-up limit reached. Upgrade your plan.'); return; }
+    if (!canFollowUp) { toast.error('Monthly follow-up limit reached.'); return; }
     setGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-app', {
@@ -132,10 +131,6 @@ export default function ProjectDetailPage() {
       setFollowUpPrompt('');
       toast.success('Follow-up generation started!');
       pollGeneration(data.generationId);
-      await supabase.from('usage_tracking').insert({
-        user_id: user.id, action_type: 'follow_up_edit',
-        project_id: project.id, model_used: project.selected_model,
-      });
     } catch (err: any) {
       toast.error(err.message || 'Follow-up failed');
       setGenerating(false);
@@ -144,34 +139,24 @@ export default function ProjectDetailPage() {
 
   const handleExportZip = async () => {
     if (!project || !user) return;
-    if (!canExport) { toast.error('Monthly export limit reached. Upgrade your plan.'); return; }
+    if (!canExport) { toast.error('Monthly export limit reached.'); return; }
     setExporting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('export-zip', {
-        body: { projectId: project.id },
-      });
+      const { data, error } = await supabase.functions.invoke('export-zip', { body: { projectId: project.id } });
       if (error) throw error;
       const link = document.createElement('a');
       link.href = `data:application/zip;base64,${data.zipBase64}`;
       link.download = `${project.slug}.zip`;
       link.click();
-      await supabase.from('usage_tracking').insert({
-        user_id: user.id, action_type: 'zip_export', project_id: project.id,
-      });
+      await supabase.from('usage_tracking').insert({ user_id: user.id, action_type: 'zip_export', project_id: project.id });
       toast.success('ZIP exported!');
     } catch (err: any) {
       toast.error(err.message || 'Export failed');
-    } finally {
-      setExporting(false);
-    }
+    } finally { setExporting(false); }
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 
   if (!project) {
@@ -207,6 +192,8 @@ export default function ProjectDetailPage() {
             </div>
           </div>
           <div className="flex gap-2">
+            <CloneProjectButton projectId={project.id} projectName={project.name} />
+            <DeleteProjectDialog projectId={project.id} projectName={project.name} />
             <Button variant="outline" onClick={handleGenerate} disabled={generating}>
               <RefreshCw className={`w-4 h-4 mr-2 ${generating ? 'animate-spin' : ''}`} />
               {generating ? 'Generating...' : 'Regenerate'}
@@ -250,6 +237,7 @@ export default function ProjectDetailPage() {
             <TabsTrigger value="logs"><AlertTriangle className="w-4 h-4 mr-2" />Build Logs</TabsTrigger>
             <TabsTrigger value="revisions"><History className="w-4 h-4 mr-2" />Revisions</TabsTrigger>
             <TabsTrigger value="github"><Github className="w-4 h-4 mr-2" />GitHub</TabsTrigger>
+            <TabsTrigger value="settings"><Settings className="w-4 h-4 mr-2" />Settings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="files" className="space-y-4">
@@ -300,11 +288,7 @@ export default function ProjectDetailPage() {
                     rows={2}
                     className="flex-1"
                   />
-                  <Button
-                    onClick={handleFollowUp}
-                    disabled={!followUpPrompt.trim() || generating}
-                    className="gradient-primary self-end"
-                  >
+                  <Button onClick={handleFollowUp} disabled={!followUpPrompt.trim() || generating} className="gradient-primary self-end">
                     {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </Button>
                 </div>
@@ -331,23 +315,19 @@ export default function ProjectDetailPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="logs">
-            <BuildLogViewer projectId={project.id} />
-          </TabsContent>
-
-          <TabsContent value="revisions">
-            <RevisionCompare projectId={project.id} onRestore={loadProject} />
-          </TabsContent>
-
+          <TabsContent value="logs"><BuildLogViewer projectId={project.id} /></TabsContent>
+          <TabsContent value="revisions"><RevisionCompare projectId={project.id} onRestore={loadProject} /></TabsContent>
           <TabsContent value="github">
             <GitHubPanel
-              projectId={project.id}
-              projectSlug={project.slug}
+              projectId={project.id} projectSlug={project.slug}
               githubConnected={project.github_connected}
               githubRepoUrl={project.github_repo_url}
               githubBranch={(project as any).github_branch}
               onUpdate={loadProject}
             />
+          </TabsContent>
+          <TabsContent value="settings">
+            <ProjectSettings project={project} onUpdate={loadProject} />
           </TabsContent>
         </Tabs>
       </div>
