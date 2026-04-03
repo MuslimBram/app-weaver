@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
-import { History, RotateCcw, ArrowLeftRight, Eye } from 'lucide-react';
+import { History, RotateCcw, ArrowLeftRight, Eye, ChevronDown, ChevronRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface Revision {
@@ -20,6 +20,42 @@ interface FileData {
   content: string;
 }
 
+// Simple line diff
+function computeLineDiff(a: string, b: string): { type: 'same' | 'add' | 'remove'; line: string }[] {
+  const linesA = a.split('\n');
+  const linesB = b.split('\n');
+  const result: { type: 'same' | 'add' | 'remove'; line: string }[] = [];
+
+  // LCS-based diff (simplified)
+  const maxLen = Math.max(linesA.length, linesB.length);
+  let ia = 0, ib = 0;
+
+  while (ia < linesA.length || ib < linesB.length) {
+    if (ia < linesA.length && ib < linesB.length && linesA[ia] === linesB[ib]) {
+      result.push({ type: 'same', line: linesA[ia] });
+      ia++; ib++;
+    } else {
+      // Look ahead for match
+      let foundA = -1, foundB = -1;
+      for (let k = 1; k <= 5; k++) {
+        if (foundB === -1 && ib + k < linesB.length && linesA[ia] === linesB[ib + k]) foundB = k;
+        if (foundA === -1 && ia + k < linesA.length && linesA[ia + k] === linesB[ib]) foundA = k;
+      }
+
+      if (foundA !== -1 && (foundB === -1 || foundA <= foundB)) {
+        for (let k = 0; k < foundA; k++) { result.push({ type: 'remove', line: linesA[ia++] }); }
+      } else if (foundB !== -1) {
+        for (let k = 0; k < foundB; k++) { result.push({ type: 'add', line: linesB[ib++] }); }
+      } else {
+        if (ia < linesA.length) result.push({ type: 'remove', line: linesA[ia++] });
+        if (ib < linesB.length) result.push({ type: 'add', line: linesB[ib++] });
+      }
+    }
+  }
+
+  return result;
+}
+
 export default function RevisionCompare({ projectId, onRestore }: { projectId: string; onRestore: () => void }) {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +64,7 @@ export default function RevisionCompare({ projectId, onRestore }: { projectId: s
   const [compareRevB, setCompareRevB] = useState<Revision | null>(null);
   const [filesA, setFilesA] = useState<FileData[]>([]);
   const [filesB, setFilesB] = useState<FileData[]>([]);
-  const [viewFile, setViewFile] = useState<string | null>(null);
+  const [expandedFile, setExpandedFile] = useState<string | null>(null);
 
   useEffect(() => {
     supabase
@@ -45,61 +81,48 @@ export default function RevisionCompare({ projectId, onRestore }: { projectId: s
   const handleCompare = async (revA: Revision, revB: Revision) => {
     setCompareRevA(revA);
     setCompareRevB(revB);
-
     const [resA, resB] = await Promise.all([
       supabase.from('app_files').select('path, content').eq('project_id', projectId).eq('revision_id', revA.id),
       supabase.from('app_files').select('path, content').eq('project_id', projectId).eq('revision_id', revB.id),
     ]);
-
     setFilesA((resA.data as any) || []);
     setFilesB((resB.data as any) || []);
+    setExpandedFile(null);
     setCompareOpen(true);
   };
 
   const handleRestore = async (revisionId: string) => {
     try {
       const { data: files } = await supabase
-        .from('app_files')
-        .select('*')
-        .eq('project_id', projectId)
-        .eq('revision_id', revisionId);
-
-      if (!files || files.length === 0) {
-        toast.error('No files found for this revision');
-        return;
-      }
+        .from('app_files').select('*').eq('project_id', projectId).eq('revision_id', revisionId);
+      if (!files || files.length === 0) { toast.error('No files for this revision'); return; }
 
       await supabase.from('app_files').delete().eq('project_id', projectId);
       for (const file of files) {
         await supabase.from('app_files').insert({
-          project_id: file.project_id,
-          generation_id: file.generation_id,
-          path: file.path,
-          content: file.content,
-          file_type: file.file_type,
+          project_id: file.project_id, generation_id: file.generation_id,
+          path: file.path, content: file.content, file_type: file.file_type,
         });
       }
-
       toast.success('Revision restored!');
       onRestore();
-    } catch {
-      toast.error('Failed to restore');
-    }
+    } catch { toast.error('Failed to restore'); }
   };
 
-  // Compute diff between two sets of files
   const diffFiles = () => {
     const allPaths = new Set([...filesA.map(f => f.path), ...filesB.map(f => f.path)]);
-    const diffs: Array<{ path: string; status: 'added' | 'removed' | 'modified' | 'unchanged' }> = [];
+    const diffs: Array<{ path: string; status: 'added' | 'removed' | 'modified' | 'unchanged'; linesChanged?: number }> = [];
 
     for (const path of allPaths) {
       const inA = filesA.find(f => f.path === path);
       const inB = filesB.find(f => f.path === path);
-
       if (!inA) diffs.push({ path, status: 'added' });
       else if (!inB) diffs.push({ path, status: 'removed' });
-      else if (inA.content !== inB.content) diffs.push({ path, status: 'modified' });
-      else diffs.push({ path, status: 'unchanged' });
+      else if (inA.content !== inB.content) {
+        const diff = computeLineDiff(inA.content, inB.content);
+        const changed = diff.filter(d => d.type !== 'same').length;
+        diffs.push({ path, status: 'modified', linesChanged: changed });
+      } else diffs.push({ path, status: 'unchanged' });
     }
 
     return diffs.sort((a, b) => {
@@ -109,10 +132,40 @@ export default function RevisionCompare({ projectId, onRestore }: { projectId: s
   };
 
   const statusColors = {
-    added: 'text-success bg-success/10',
-    removed: 'text-destructive bg-destructive/10',
-    modified: 'text-warning bg-warning/10',
+    added: 'text-green-600 bg-green-500/10',
+    removed: 'text-red-500 bg-red-500/10',
+    modified: 'text-amber-500 bg-amber-500/10',
     unchanged: 'text-muted-foreground bg-muted/30',
+  };
+
+  const renderLineDiff = (path: string) => {
+    const fileA = filesA.find(f => f.path === path);
+    const fileB = filesB.find(f => f.path === path);
+    if (!fileA || !fileB) return null;
+
+    const diff = computeLineDiff(fileA.content, fileB.content);
+
+    return (
+      <div className="border rounded-lg overflow-hidden mt-2 text-xs font-mono">
+        <ScrollArea className="max-h-[300px]">
+          {diff.map((d, i) => (
+            <div
+              key={i}
+              className={`flex px-3 py-0.5 ${
+                d.type === 'add' ? 'bg-green-500/10 text-green-700 dark:text-green-400' :
+                d.type === 'remove' ? 'bg-red-500/10 text-red-700 dark:text-red-400' :
+                ''
+              }`}
+            >
+              <span className="w-6 shrink-0 text-muted-foreground/50 select-none text-right mr-2">
+                {d.type === 'add' ? '+' : d.type === 'remove' ? '-' : ' '}
+              </span>
+              <span className="whitespace-pre-wrap break-all">{d.line || ' '}</span>
+            </div>
+          ))}
+        </ScrollArea>
+      </div>
+    );
   };
 
   return (
@@ -137,12 +190,7 @@ export default function RevisionCompare({ projectId, onRestore }: { projectId: s
                 </div>
                 <div className="flex gap-1 ml-3">
                   {i < revisions.length - 1 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleCompare(rev, revisions[i + 1])}
-                      title="Compare with previous"
-                    >
+                    <Button variant="outline" size="sm" onClick={() => handleCompare(rev, revisions[i + 1])} title="Compare with previous">
                       <ArrowLeftRight className="w-3 h-3" />
                     </Button>
                   )}
@@ -155,29 +203,37 @@ export default function RevisionCompare({ projectId, onRestore }: { projectId: s
           </div>
         )}
 
-        {/* Compare Dialog */}
         <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
-          <DialogContent className="max-w-3xl">
+          <DialogContent className="max-w-4xl max-h-[80vh]">
             <DialogHeader>
               <DialogTitle>
-                Compare: Rev #{compareRevA?.revision_number} → Rev #{compareRevB?.revision_number}
+                Compare: Rev #{compareRevB?.revision_number} → Rev #{compareRevA?.revision_number}
               </DialogTitle>
             </DialogHeader>
-            <ScrollArea className="max-h-[500px]">
+            <ScrollArea className="max-h-[60vh]">
               <div className="space-y-2">
                 {diffFiles().map(d => (
-                  <div key={d.path} className="flex items-center justify-between p-2 rounded text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColors[d.status]}`}>
-                        {d.status}
-                      </span>
-                      <span className="font-mono text-xs">{d.path}</span>
+                  <div key={d.path}>
+                    <div
+                      className="flex items-center justify-between p-2 rounded text-sm cursor-pointer hover:bg-muted/50"
+                      onClick={() => d.status === 'modified' && setExpandedFile(expandedFile === d.path ? null : d.path)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {d.status === 'modified' && (
+                          expandedFile === d.path
+                            ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                            : <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                        )}
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColors[d.status]}`}>
+                          {d.status}
+                        </span>
+                        <span className="font-mono text-xs">{d.path}</span>
+                        {d.linesChanged && (
+                          <span className="text-xs text-muted-foreground">({d.linesChanged} lines)</span>
+                        )}
+                      </div>
                     </div>
-                    {d.status === 'modified' && (
-                      <Button variant="ghost" size="sm" onClick={() => setViewFile(viewFile === d.path ? null : d.path)}>
-                        <Eye className="w-3 h-3" />
-                      </Button>
-                    )}
+                    {expandedFile === d.path && d.status === 'modified' && renderLineDiff(d.path)}
                   </div>
                 ))}
               </div>
