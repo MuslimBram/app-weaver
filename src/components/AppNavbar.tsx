@@ -1,14 +1,16 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/hooks/useTheme';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Sparkles, FolderOpen, Plus, BarChart3, LogOut } from 'lucide-react';
+import { Sparkles, FolderOpen, Plus, BarChart3, LogOut, Moon, Sun } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AppNavbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { theme, toggle } = useTheme();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -53,9 +55,12 @@ export default function AppNavbar() {
           })}
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle}>
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </Button>
           {user && (
-            <span className="text-xs text-muted-foreground hidden sm:block">
+            <span className="text-xs text-muted-foreground hidden sm:block max-w-[140px] truncate">
               {user.email}
             </span>
           )}
