@@ -4,11 +4,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Github, Download, Loader2, FolderOpen } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Github, Download, Loader2, FolderOpen, Link2 } from 'lucide-react';
 
 interface GitHubImportDialogProps {
   open: boolean;
@@ -19,44 +19,60 @@ export default function GitHubImportDialog({ open, onOpenChange }: GitHubImportD
   const navigate = useNavigate();
   const { user } = useAuth();
   const [connected, setConnected] = useState(false);
+  const [accountName, setAccountName] = useState('');
   const [repos, setRepos] = useState<any[]>([]);
   const [selectedRepo, setSelectedRepo] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('main');
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
 
   const checkConnection = useCallback(async () => {
-    const { data } = await supabase.functions.invoke('github-integration', {
-      body: { action: 'status' },
-    });
-    setConnected(data?.connected || false);
-    if (data?.connected) {
-      loadRepos();
-    }
+    setLoading(true);
+    try {
+      const { data } = await supabase.functions.invoke('github-integration', {
+        body: { action: 'status' },
+      });
+      setConnected(data?.connected || false);
+      setAccountName(data?.accountName || '');
+      if (data?.connected) loadRepos();
+    } catch {} finally { setLoading(false); }
   }, []);
 
   const loadRepos = async () => {
-    setLoading(true);
     try {
       const { data } = await supabase.functions.invoke('github-integration', {
         body: { action: 'list-repos' },
       });
       setRepos(data?.repos || []);
-    } catch {
-      toast.error('Failed to load repos');
-    } finally {
-      setLoading(false);
-    }
+    } catch { toast.error('Failed to load repos'); }
   };
 
-  useEffect(() => {
-    if (open) checkConnection();
-  }, [open, checkConnection]);
+  useEffect(() => { if (open) checkConnection(); }, [open, checkConnection]);
+
+  const handleConnect = async () => {
+    if (!tokenInput.trim()) { toast.error('Please enter a GitHub token'); return; }
+    setConnecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('github-integration', {
+        body: { action: 'connect', token: tokenInput },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setConnected(true);
+      setAccountName(data.accountName);
+      setTokenInput('');
+      toast.success(`Connected as ${data.accountName}`);
+      loadRepos();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to connect');
+    } finally { setConnecting(false); }
+  };
 
   const handleImport = async () => {
     if (!selectedRepo) { toast.error('Select a repo'); return; }
     setImporting(true);
-
     try {
       const repo = repos.find(r => r.fullName === selectedRepo);
       const { data, error } = await supabase.functions.invoke('github-integration', {
@@ -66,18 +82,14 @@ export default function GitHubImportDialog({ open, onOpenChange }: GitHubImportD
           branch: repo?.defaultBranch || selectedBranch,
         },
       });
-
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-
       toast.success(`Imported ${data.filesCount} files from ${selectedRepo}`);
       onOpenChange(false);
       navigate(`/app-builder/project/${data.projectId}`);
     } catch (err: any) {
       toast.error(err.message || 'Import failed');
-    } finally {
-      setImporting(false);
-    }
+    } finally { setImporting(false); }
   };
 
   return (
@@ -89,21 +101,51 @@ export default function GitHubImportDialog({ open, onOpenChange }: GitHubImportD
           </DialogTitle>
         </DialogHeader>
 
-        {!connected ? (
-          <div className="text-center py-6">
-            <Github className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground mb-4">
-              Connect your GitHub account first to import repos.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Go to any project → GitHub tab → Connect
-            </p>
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : !connected ? (
+          <div className="space-y-4 py-2">
+            <div className="text-center">
+              <Github className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground mb-4">
+                Connect your GitHub account to import repositories.
+              </p>
+            </div>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>GitHub Personal Access Token</Label>
+                <Input
+                  type="password"
+                  value={tokenInput}
+                  onChange={e => setTokenInput(e.target.value)}
+                  placeholder="ghp_xxxxxxxxxxxx"
+                  onKeyDown={e => e.key === 'Enter' && handleConnect()}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Create a token with <code className="bg-muted px-1 rounded">repo</code> scope at{' '}
+                  <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    github.com/settings/tokens
+                  </a>
+                </p>
+              </div>
+              <Button onClick={handleConnect} disabled={connecting || !tokenInput.trim()} className="w-full gradient-primary">
+                {connecting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Link2 className="w-4 h-4 mr-2" />}
+                Connect & Import
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/30 text-sm">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              <span>Connected as <strong>@{accountName}</strong></span>
+            </div>
+
             <div className="space-y-2">
               <Label>Select Repository</Label>
-              {loading ? (
+              {repos.length === 0 ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" /> Loading repos...
                 </div>
