@@ -327,6 +327,14 @@ ${mode === 'follow-up' && existingFiles ? `\nExisting files: ${existingFiles.map
     let fileGenSystemPrompt = `You are an expert full-stack developer. Generate complete project files based on the specification.
 Return ONLY valid JSON as an array: [{"path": "src/App.tsx", "content": "...", "type": "tsx"}]
 Generate real, functional code with all imports, proper structure, README.md, package.json.
+IMPORTANT RULES:
+- Every file must have valid imports that reference other generated files
+- Include a complete package.json with all necessary dependencies and scripts (dev, build, preview)
+- Include a README.md with setup instructions
+- Include an .env.example if the app uses environment variables
+- For React apps: include index.html, main entry, App component, and all page components
+- All components must export default
+- Use consistent styling (Tailwind CSS preferred for React apps)
 Stack: ${stack}`;
 
     if (mode === 'follow-up') {
@@ -338,7 +346,6 @@ Stack: ${stack}`;
 
     let fileGenUserPrompt = `Specification: ${JSON.stringify(specJson)}\nOriginal prompt: ${prompt}`;
     if (mode === 'follow-up' && existingFiles) {
-      // Only send relevant files for context
       const relevantFiles = targetFiles
         ? existingFiles.filter((f: any) => targetFiles.includes(f.path) || f.path === 'package.json')
         : existingFiles;
@@ -348,6 +355,27 @@ Stack: ${stack}`;
     const fileResult = await callAI(LOVABLE_API_KEY, gatewayModel, fileGenSystemPrompt, fileGenUserPrompt);
     let generatedFiles = parseJsonSafe(fileResult.content, [{ path: 'README.md', content: `# ${specJson.app_name || 'App'}\n\n${prompt}`, type: 'md' }]);
     if (!Array.isArray(generatedFiles)) generatedFiles = [generatedFiles];
+
+    // ── AUTO-INJECT: deployment configs if missing ──
+    const filePaths = new Set(generatedFiles.map((f: any) => f.path));
+    
+    // Add vercel.json for deployment readiness
+    if (!filePaths.has('vercel.json') && (stack === 'react-vite' || stack === 'react-supabase')) {
+      generatedFiles.push({
+        path: 'vercel.json',
+        content: JSON.stringify({ framework: 'vite', buildCommand: 'npm run build', outputDirectory: 'dist', rewrites: [{ source: '/(.*)', destination: '/index.html' }] }, null, 2),
+        type: 'json',
+      });
+    }
+
+    // Add .env.example if env vars are specified
+    if (!filePaths.has('.env.example') && specJson.env_vars?.length > 0) {
+      generatedFiles.push({
+        path: '.env.example',
+        content: specJson.env_vars.map((v: string) => `${v}=`).join('\n') + '\n',
+        type: 'env',
+      });
+    }
 
     await supabase.from('app_generations').update({
       status: 'reviewing', current_stage: 'reviewing', progress: 60,
