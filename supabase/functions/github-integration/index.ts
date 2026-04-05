@@ -349,7 +349,9 @@ serve(async (req) => {
         });
 
         if (!reposResp.ok) {
-          return new Response(JSON.stringify({ error: "Failed to fetch repos" }), {
+          const errBody = await reposResp.text();
+          console.error("GitHub list-repos failed:", reposResp.status, errBody);
+          return new Response(JSON.stringify({ error: `Failed to fetch repos: ${reposResp.status}` }), {
             status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
