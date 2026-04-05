@@ -352,10 +352,9 @@ serve(async (req) => {
           const errBody = await reposResp.text();
           console.error("GitHub list-repos failed:", reposResp.status, errBody);
           if (reposResp.status === 401) {
-            // Token expired/invalid - remove the connection so user can reconnect
             await supabase.from("github_connections").delete().eq("user_id", userId);
             return new Response(JSON.stringify({ error: "GitHub token expired. Please reconnect.", tokenExpired: true }), {
-              status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
           return new Response(JSON.stringify({ error: `Failed to fetch repos: ${reposResp.status}` }), {

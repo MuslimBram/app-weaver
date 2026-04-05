@@ -45,13 +45,14 @@ export default function GitHubImportDialog({ open, onOpenChange }: GitHubImportD
       const { data, error } = await supabase.functions.invoke('github-integration', {
         body: { action: 'list-repos' },
       });
+      if (error && !data?.tokenExpired) throw error;
       if (data?.tokenExpired) {
         setConnected(false);
         setAccountName('');
+        setRepos([]);
         toast.error('GitHub token expired. Please reconnect with a new token.');
         return;
       }
-      if (error) throw error;
       setRepos(data?.repos || []);
     } catch { toast.error('Failed to load repos'); }
   };

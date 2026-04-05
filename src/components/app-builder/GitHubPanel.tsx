@@ -124,12 +124,14 @@ export default function GitHubPanel({
 
   const loadRepos = async () => {
     try {
-      const { data } = await supabase.functions.invoke('github-integration', {
+      const { data, error } = await supabase.functions.invoke('github-integration', {
         body: { action: 'list-repos' },
       });
+      if (error && !data?.tokenExpired) throw error;
       if (data?.tokenExpired) {
         setConnected(false);
         setAccountName('');
+        setRepos([]);
         toast.error('GitHub token expired. Please reconnect.');
         return;
       }
