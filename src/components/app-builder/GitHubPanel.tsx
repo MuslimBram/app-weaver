@@ -127,6 +127,12 @@ export default function GitHubPanel({
       const { data } = await supabase.functions.invoke('github-integration', {
         body: { action: 'list-repos' },
       });
+      if (data?.tokenExpired) {
+        setConnected(false);
+        setAccountName('');
+        toast.error('GitHub token expired. Please reconnect.');
+        return;
+      }
       setRepos(data?.repos || []);
     } catch {}
   };
