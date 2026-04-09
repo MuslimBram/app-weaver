@@ -50,7 +50,7 @@ export default function ProjectDetailPage() {
   const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  
   const [loading, setLoading] = useState(true);
 
   const loadProject = useCallback(async () => {
