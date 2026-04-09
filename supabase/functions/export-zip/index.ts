@@ -114,7 +114,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { projectId } = await req.json();
+    const { projectId, addPwaFiles } = await req.json();
     if (!projectId) {
       return new Response(JSON.stringify({ error: "projectId required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -133,7 +133,65 @@ serve(async (req) => {
       });
     }
 
-    const zipBytes = createZip(files);
+    const allFiles = [...files];
+
+    // Add PWA files if requested
+    if (addPwaFiles) {
+      const { data: proj } = await supabase.from('app_projects').select('name, slug').eq('id', projectId).single();
+      const appName = proj?.name || 'App';
+      const slug = proj?.slug || 'app';
+
+      if (!allFiles.find(f => f.path === 'manifest.json')) {
+        allFiles.push({
+          path: 'manifest.json',
+          content: JSON.stringify({
+            name: appName,
+            short_name: slug,
+            start_url: '/',
+            display: 'standalone',
+            background_color: '#ffffff',
+            theme_color: '#6366f1',
+            icons: [
+              { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+              { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+            ],
+          }, null, 2),
+        });
+      }
+
+      if (!allFiles.find(f => f.path === 'sw.js')) {
+        allFiles.push({
+          path: 'sw.js',
+          content: `const CACHE_NAME = '${slug}-v1';
+const urlsToCache = ['/'];
+
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
+});
+
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    caches.match(event.request).then(response => response || fetch(event.request))
+  );
+});`,
+        });
+      }
+
+      // Add PWA registration to index.html if it exists
+      const indexHtml = allFiles.find(f => f.path === 'index.html');
+      if (indexHtml && !indexHtml.content.includes('manifest')) {
+        indexHtml.content = indexHtml.content.replace(
+          '</head>',
+          '  <link rel="manifest" href="/manifest.json">\n  </head>'
+        );
+        indexHtml.content = indexHtml.content.replace(
+          '</body>',
+          `  <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js');}</script>\n  </body>`
+        );
+      }
+    }
+
+    const zipBytes = createZip(allFiles);
     const zipBase64 = base64Encode(zipBytes);
 
     // Track export
@@ -147,11 +205,11 @@ serve(async (req) => {
       await supabase.from('app_exports').insert({
         project_id: projectId,
         user_id: project.user_id,
-        export_type: 'zip',
+        export_type: addPwaFiles ? 'pwa' : 'zip',
       });
     }
 
-    return new Response(JSON.stringify({ zipBase64, filesCount: files.length }), {
+    return new Response(JSON.stringify({ zipBase64, filesCount: allFiles.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 

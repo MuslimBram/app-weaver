@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  ArrowLeft, Download, Play, RefreshCw,
+  ArrowLeft, Play, RefreshCw,
   FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github, Eye, Settings
 } from 'lucide-react';
 import FileTreeViewer from '@/components/app-builder/FileTreeViewer';
@@ -23,6 +23,7 @@ import GitHubPanel from '@/components/app-builder/GitHubPanel';
 import LivePreview from '@/components/app-builder/LivePreview';
 import ProjectSettings from '@/components/app-builder/ProjectSettings';
 import { DeleteProjectDialog, CloneProjectButton } from '@/components/app-builder/ProjectActions';
+import ExportOptions from '@/components/app-builder/ExportOptions';
 
 interface ProjectData {
   id: string; name: string; slug: string; description: string | null;
@@ -49,7 +50,7 @@ export default function ProjectDetailPage() {
   const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  
   const [loading, setLoading] = useState(true);
 
   const loadProject = useCallback(async () => {
@@ -137,23 +138,6 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleExportZip = async () => {
-    if (!project || !user) return;
-    if (!canExport) { toast.error('Monthly export limit reached.'); return; }
-    setExporting(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('export-zip', { body: { projectId: project.id } });
-      if (error) throw error;
-      const link = document.createElement('a');
-      link.href = `data:application/zip;base64,${data.zipBase64}`;
-      link.download = `${project.slug}.zip`;
-      link.click();
-      await supabase.from('usage_tracking').insert({ user_id: user.id, action_type: 'zip_export', project_id: project.id });
-      toast.success('ZIP exported!');
-    } catch (err: any) {
-      toast.error(err.message || 'Export failed');
-    } finally { setExporting(false); }
-  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
@@ -198,10 +182,12 @@ export default function ProjectDetailPage() {
               <RefreshCw className={`w-4 h-4 mr-2 ${generating ? 'animate-spin' : ''}`} />
               {generating ? 'Generating...' : 'Regenerate'}
             </Button>
-            <Button variant="outline" onClick={handleExportZip} disabled={exporting || files.length === 0}>
-              <Download className="w-4 h-4 mr-2" />
-              {exporting ? 'Exporting...' : 'Export ZIP'}
-            </Button>
+            <ExportOptions
+              projectId={project.id}
+              projectSlug={project.slug}
+              filesCount={files.length}
+              canExport={canExport}
+            />
           </div>
         </div>
 
