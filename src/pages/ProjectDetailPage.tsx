@@ -23,6 +23,7 @@ import GitHubPanel from '@/components/app-builder/GitHubPanel';
 import LivePreview from '@/components/app-builder/LivePreview';
 import ProjectSettings from '@/components/app-builder/ProjectSettings';
 import { DeleteProjectDialog, CloneProjectButton } from '@/components/app-builder/ProjectActions';
+import ExportOptions from '@/components/app-builder/ExportOptions';
 
 interface ProjectData {
   id: string; name: string; slug: string; description: string | null;
@@ -198,10 +199,12 @@ export default function ProjectDetailPage() {
               <RefreshCw className={`w-4 h-4 mr-2 ${generating ? 'animate-spin' : ''}`} />
               {generating ? 'Generating...' : 'Regenerate'}
             </Button>
-            <Button variant="outline" onClick={handleExportZip} disabled={exporting || files.length === 0}>
-              <Download className="w-4 h-4 mr-2" />
-              {exporting ? 'Exporting...' : 'Export ZIP'}
-            </Button>
+            <ExportOptions
+              projectId={project.id}
+              projectSlug={project.slug}
+              filesCount={files.length}
+              canExport={canExport}
+            />
           </div>
         </div>
 
