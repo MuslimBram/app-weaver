@@ -138,23 +138,6 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleExportZip = async () => {
-    if (!project || !user) return;
-    if (!canExport) { toast.error('Monthly export limit reached.'); return; }
-    setExporting(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('export-zip', { body: { projectId: project.id } });
-      if (error) throw error;
-      const link = document.createElement('a');
-      link.href = `data:application/zip;base64,${data.zipBase64}`;
-      link.download = `${project.slug}.zip`;
-      link.click();
-      await supabase.from('usage_tracking').insert({ user_id: user.id, action_type: 'zip_export', project_id: project.id });
-      toast.success('ZIP exported!');
-    } catch (err: any) {
-      toast.error(err.message || 'Export failed');
-    } finally { setExporting(false); }
-  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
