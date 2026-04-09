@@ -205,11 +205,11 @@ self.addEventListener('fetch', event => {
       await supabase.from('app_exports').insert({
         project_id: projectId,
         user_id: project.user_id,
-        export_type: 'zip',
+        export_type: addPwaFiles ? 'pwa' : 'zip',
       });
     }
 
-    return new Response(JSON.stringify({ zipBase64, filesCount: files.length }), {
+    return new Response(JSON.stringify({ zipBase64, filesCount: allFiles.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
