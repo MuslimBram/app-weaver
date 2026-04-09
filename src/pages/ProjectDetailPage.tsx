@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  ArrowLeft, Download, Play, RefreshCw,
+  ArrowLeft, Play, RefreshCw,
   FileCode, FolderTree, History, AlertTriangle, Loader2, Send, Github, Eye, Settings
 } from 'lucide-react';
 import FileTreeViewer from '@/components/app-builder/FileTreeViewer';
