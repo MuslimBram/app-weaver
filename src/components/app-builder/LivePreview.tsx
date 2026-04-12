@@ -88,16 +88,21 @@ function analyzeProject(files: FileData[]): { pages: PageInfo[]; components: str
 function buildPreviewHtml(files: FileData[], pages: PageInfo[]): string {
   const indexHtml = files.find(f => f.path === 'index.html' || f.path === 'public/index.html');
   if (indexHtml) {
-    let html = indexHtml.content;
-    const cssFiles = files.filter(f => f.path.endsWith('.css'));
-    if (cssFiles.length > 0) {
-      html = html.replace('</head>', `<style>\n${cssFiles.map(f => f.content).join('\n')}\n</style>\n</head>`);
+    const hasFrameworkSourceFiles = files.some(f => /\.(tsx|jsx)$/.test(f.path) || /(^|\/)src\/(main|index)\.(ts|tsx|js|jsx)$/.test(f.path));
+    const hasModuleEntrypoint = /<script[^>]+type=["']module["'][^>]+src=["'][^"']+\.(ts|tsx|js|jsx)["'][^>]*>/i.test(indexHtml.content);
+
+    if (!hasFrameworkSourceFiles && !hasModuleEntrypoint) {
+      let html = indexHtml.content;
+      const cssFiles = files.filter(f => f.path.endsWith('.css'));
+      if (cssFiles.length > 0) {
+        html = html.replace('</head>', `<style>\n${cssFiles.map(f => f.content).join('\n')}\n</style>\n</head>`);
+      }
+      const jsFiles = files.filter(f => f.path.endsWith('.js') && !f.path.endsWith('.min.js') && !f.path.includes('node_modules'));
+      if (jsFiles.length > 0) {
+        html = html.replace('</body>', `<script>\n${jsFiles.map(f => f.content).join('\n')}\n</script>\n</body>`);
+      }
+      return html;
     }
-    const jsFiles = files.filter(f => f.path.endsWith('.js') && !f.path.endsWith('.min.js') && !f.path.includes('node_modules'));
-    if (jsFiles.length > 0) {
-      html = html.replace('</body>', `<script>\n${jsFiles.map(f => f.content).join('\n')}\n</script>\n</body>`);
-    }
-    return html;
   }
 
   const pkgFile = files.find(f => f.path === 'package.json');
@@ -114,11 +119,16 @@ function buildPreviewHtml(files: FileData[], pages: PageInfo[]): string {
 
   const fileTree = files.map(f => `<div class="file">${f.path.endsWith('/') ? '📁' : '📄'} ${f.path}</div>`).join('');
 
+  const previewNotice = indexHtml
+    ? '<div class="notice">This project uses a framework entry file, so the preview falls back to a readable project overview instead of a blank screen.</div>'
+    : '';
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#1e293b;padding:24px}
 .header{text-align:center;padding:24px 0;border-bottom:1px solid #e2e8f0;margin-bottom:20px}
 .header h1{font-size:24px;font-weight:700}.header p{color:#64748b;margin-top:4px;font-size:13px}
 .badge{display:inline-block;background:#6366f1;color:white;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:500;margin-bottom:8px}
+.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;padding:12px 14px;border-radius:10px;margin-bottom:12px;font-size:12px;line-height:1.5}
 .section{background:white;border-radius:10px;padding:16px;margin-bottom:12px;border:1px solid #e2e8f0}
 .section h2{font-size:14px;font-weight:600;margin-bottom:10px;color:#334155;display:flex;align-items:center;gap:6px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:600px){.grid{grid-template-columns:1fr}}
@@ -130,6 +140,7 @@ function buildPreviewHtml(files: FileData[], pages: PageInfo[]): string {
 </style></head><body>
 <div class="header"><span class="badge">Pulse AI Preview</span><h1>${pkgData.name || 'Generated App'}</h1>
 <p>${pkgData.description || readmeFile?.content?.split('\n')[0]?.replace(/^#\s*/,'') || 'AI-generated application'}</p></div>
+${previewNotice}
 <div class="grid">
 <div class="section"><h2>📑 Pages (${pages.length})</h2>${pagesList}</div>
 <div class="section"><h2>📦 Dependencies</h2><div style="display:flex;flex-wrap:wrap;gap:3px">${depsList || '<span class="empty">None</span>'}</div></div>
